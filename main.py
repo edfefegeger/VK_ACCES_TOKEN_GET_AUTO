@@ -7,17 +7,21 @@ from selenium.webdriver.chrome.options import Options
 import base64
 import requests
 from language import LANGUAGES, choose_language
-
+import configparser
 # ==== SETTINGS ====
 L = choose_language()
 CLIENT_ID = "6121396"
 REDIRECT_URI = "https://oauth.vk.com/blank.html"
 SCOPES = "215985366"
-ACCOUNTS_FILE = "accounts.txt"  # format: email:password
+ACCOUNTS_FILE = "accounts.txt"  # формат: email:password
 OUTPUT_FILE = "output.txt"
-API_KEY = os.getenv("ANTICAPTCHA_API_KEY")
-API_CREATE_TASK = "https://api.anti-captcha.com/createTask"
-API_GET_RESULT = "https://api.anti-captcha.com/getTaskResult"
+config = configparser.ConfigParser()
+config.read("config.ini")
+
+API_KEY = config.get("settings", "RUCAPTCHA_API_KEY") 
+API_CREATE_TASK = "https://api.rucaptcha.com/createTask"
+API_GET_RESULT = "https://api.rucaptcha.com/getTaskResult"
+
 
 def choose_output_format():
     print(L["select_format"])
@@ -30,7 +34,9 @@ def choose_output_format():
         else:
             print(L["invalid_input"])
 
+
 OUTPUT_FORMAT = choose_output_format()
+
 
 def build_auth_url():
     params = {
@@ -43,11 +49,9 @@ def build_auth_url():
     }
     return "https://oauth.vk.com/oauth/authorize?" + urllib.parse.urlencode(params)
 
-def solve_captcha(image_url):
-    try:
-        img_bytes = requests.get(image_url).content
-        base64_img = base64.b64encode(img_bytes).decode()
 
+def solve_captcha_from_base64(base64_img):
+    try:
         task_payload = {
             "clientKey": API_KEY,
             "task": {
@@ -57,9 +61,9 @@ def solve_captcha(image_url):
                 "case": True,
                 "numeric": 0,
                 "math": False,
-                "minLength": 1,
-                "maxLength": 5,
-                "comment": "введите текст, который вы видите на изображении"
+                "minLength": 3,
+                "maxLength": 7,
+                "comment": "VK CAPTCHA"
             },
             "softId": 3898,
             "languagePool": "rn"
@@ -71,7 +75,7 @@ def solve_captcha(image_url):
             return None
 
         task_id = task_response["taskId"]
-        for _ in range(20):
+        for _ in range(100):
             time.sleep(1)
             result = requests.post(API_GET_RESULT, json={"clientKey": API_KEY, "taskId": task_id}).json()
             if result.get("status") == "ready":
@@ -84,11 +88,16 @@ def solve_captcha(image_url):
         print(f"[!] Ошибка при решении капчи: {e}")
         return None
 
+
 def get_access_token(email, password, auth_url):
     chrome_options = Options()
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/117.0.0.0 Safari/537.36"
     chrome_options.add_argument(f"user-agent={user_agent}")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    #chrome_options.add_argument("--headless")  # убери если хочешь видеть браузер
+
     driver = webdriver.Chrome(options=chrome_options)
 
     try:
@@ -98,23 +107,48 @@ def get_access_token(email, password, auth_url):
         driver.find_element(By.NAME, "email").send_keys(email)
         driver.find_element(By.NAME, "pass").send_keys(password)
         driver.find_element(By.ID, "install_allow").click()
-        time.sleep(1)
+        time.sleep(2)
 
+        # Проверка на капчу
         try:
-            captcha_img = driver.find_element(By.CLASS_NAME, "oauth_captcha")
-            if captcha_img.is_displayed():
-                print(f"[!] {L['captcha_found']} {captcha_img.get_attribute('src')}")
-                captcha_text = solve_captcha(captcha_img.get_attribute("src"))
+            captcha_element = driver.find_element(By.CLASS_NAME, "oauth_captcha")
+            if captcha_element.is_displayed():
+                print(f"[!] {L['captcha_found']}")
+                # Сохраняем как PNG и конвертируем в base64
+                captcha_png = captcha_element.screenshot_as_png
+                base64_img = base64.b64encode(captcha_png).decode()
+
+                captcha_text = solve_captcha_from_base64(base64_img)
                 if captcha_text:
                     print(f"{L['captcha_ok']} {captcha_text}")
-                    driver.find_element(By.NAME, "captcha_key").send_keys(captcha_text)
-                    driver.find_element(By.ID, "install_allow").click()
+
+                    # Повторный ввод логина и пароля
+                    try:
+                        email_input = driver.find_element(By.NAME, "email")
+                        pass_input = driver.find_element(By.NAME, "pass")
+                        captcha_input = driver.find_element(By.NAME, "captcha_key")
+
+                        email_input.clear()
+                        pass_input.clear()
+                        captcha_input.clear()
+
+                        email_input.send_keys(email)
+                        pass_input.send_keys(password)
+                        captcha_input.send_keys(captcha_text)
+
+                        driver.find_element(By.ID, "install_allow").click()
+                        time.sleep(2)
+                    except Exception as e:
+                        print(f"[!] Ошибка при повторном вводе: {e}")
+                        return None, user_agent
                 else:
                     print(L["captcha_failed"])
                     return None, user_agent
+
         except:
             print(L["no_captcha"])
 
+        # Разрешаем доступ
         for _ in range(20):
             time.sleep(0.5)
             try:
@@ -126,6 +160,7 @@ def get_access_token(email, password, auth_url):
             except:
                 continue
 
+        # Получение токена из URL
         for _ in range(20):
             time.sleep(0.5)
             if "#access_token=" in driver.current_url:
@@ -142,6 +177,7 @@ def get_access_token(email, password, auth_url):
 
     finally:
         driver.quit()
+
 
 def process_accounts():
     auth_url = build_auth_url()
@@ -165,6 +201,7 @@ def process_accounts():
                     print(f"{L['failed']} {email}")
 
             time.sleep(1)
+
 
 if __name__ == "__main__":
     process_accounts()

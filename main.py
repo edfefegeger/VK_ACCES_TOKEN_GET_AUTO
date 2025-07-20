@@ -16,11 +16,24 @@ SCOPES = "215985366"
 ACCOUNTS_FILE = "accounts.txt"  # format: email:password
 OUTPUT_FILE = "output.txt"
 API_KEY = os.getenv("ANTICAPTCHA_API_KEY")
-OUTPUT_FORMAT = 1  # 1, 2, or 3
 API_CREATE_TASK = "https://api.anti-captcha.com/createTask"
 API_GET_RESULT = "https://api.anti-captcha.com/getTaskResult"
 
 # ==================
+def choose_output_format():
+    print("Выберите формат вывода результата:")
+    print(" 1 — login:password:token")
+    print(" 2 — login:password:token:user-agent")
+    print(" 3 — token:user-agent")
+    while True:
+        choice = input("Введите номер формата (1 / 2 / 3): ").strip()
+        if choice in {"1", "2", "3"}:
+            return int(choice)
+        else:
+            print("❌ Неверный ввод. Пожалуйста, введите 1, 2 или 3.")
+
+# Устанавливаем формат при запуске
+OUTPUT_FORMAT = choose_output_format()
 
 def build_auth_url():
     params = {
@@ -68,7 +81,7 @@ def solve_captcha(image_url):
 
         # Получение результата
         for _ in range(20):
-            time.sleep(2)
+            time.sleep(1)
             result_payload = {
                 "clientKey": API_KEY,
                 "taskId": task_id
@@ -94,12 +107,12 @@ def get_access_token(email, password, auth_url):
 
     try:
         driver.get(auth_url)
-        time.sleep(3)
+        time.sleep(2)
 
         driver.find_element(By.NAME, "email").send_keys(email)
         driver.find_element(By.NAME, "pass").send_keys(password)
         driver.find_element(By.ID, "install_allow").click()
-        time.sleep(2)
+        time.sleep(1)
 
         # ==== Проверка на капчу ====
         captcha_present = False
@@ -118,7 +131,7 @@ def get_access_token(email, password, auth_url):
                 captcha_input = driver.find_element(By.NAME, "captcha_key")
                 captcha_input.send_keys(captcha_text)
                 driver.find_element(By.ID, "install_allow").click()
-                time.sleep(2)
+                time.sleep(1)
             else:
                 print("[!] Не удалось распознать капчу")
                 return None, user_agent

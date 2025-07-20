@@ -6,10 +6,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 import base64
 import requests
-from io import BytesIO
-from PIL import Image
+from language import LANGUAGES, choose_language
 
 # ==== SETTINGS ====
+L = choose_language()
 CLIENT_ID = "6121396"
 REDIRECT_URI = "https://oauth.vk.com/blank.html"
 SCOPES = "215985366"
@@ -19,20 +19,17 @@ API_KEY = os.getenv("ANTICAPTCHA_API_KEY")
 API_CREATE_TASK = "https://api.anti-captcha.com/createTask"
 API_GET_RESULT = "https://api.anti-captcha.com/getTaskResult"
 
-# ==================
 def choose_output_format():
-    print("Выберите формат вывода результата:")
-    print(" 1 — login:password:token")
-    print(" 2 — login:password:token:user-agent")
-    print(" 3 — token:user-agent")
+    print(L["select_format"])
+    for line in L["formats"]:
+        print(" ", line)
     while True:
-        choice = input("Введите номер формата (1 / 2 / 3): ").strip()
+        choice = input(L["enter_format"]).strip()
         if choice in {"1", "2", "3"}:
             return int(choice)
         else:
-            print("❌ Неверный ввод. Пожалуйста, введите 1, 2 или 3.")
+            print(L["invalid_input"])
 
-# Устанавливаем формат при запуске
 OUTPUT_FORMAT = choose_output_format()
 
 def build_auth_url():
@@ -44,17 +41,13 @@ def build_auth_url():
         "revoke": "1",
         "display": "page",
     }
-    url = "https://oauth.vk.com/oauth/authorize?" + urllib.parse.urlencode(params)
-    return url
+    return "https://oauth.vk.com/oauth/authorize?" + urllib.parse.urlencode(params)
 
 def solve_captcha(image_url):
     try:
-        # Скачать изображение
-        response = requests.get(image_url)
-        img_bytes = response.content
+        img_bytes = requests.get(image_url).content
         base64_img = base64.b64encode(img_bytes).decode()
 
-        # Отправка задачи
         task_payload = {
             "clientKey": API_KEY,
             "task": {
@@ -78,17 +71,11 @@ def solve_captcha(image_url):
             return None
 
         task_id = task_response["taskId"]
-
-        # Получение результата
         for _ in range(20):
             time.sleep(1)
-            result_payload = {
-                "clientKey": API_KEY,
-                "taskId": task_id
-            }
-            result_response = requests.post(API_GET_RESULT, json=result_payload).json()
-            if result_response.get("status") == "ready":
-                return result_response["solution"]["text"]
+            result = requests.post(API_GET_RESULT, json={"clientKey": API_KEY, "taskId": task_id}).json()
+            if result.get("status") == "ready":
+                return result["solution"]["text"]
 
         print("[!] Решение капчи не получено вовремя")
         return None
@@ -96,13 +83,12 @@ def solve_captcha(image_url):
     except Exception as e:
         print(f"[!] Ошибка при решении капчи: {e}")
         return None
+
 def get_access_token(email, password, auth_url):
     chrome_options = Options()
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/117.0.0.0 Safari/537.36"
     chrome_options.add_argument(f"user-agent={user_agent}")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    # chrome_options.add_argument("--headless")  # по желанию
-
     driver = webdriver.Chrome(options=chrome_options)
 
     try:
@@ -114,89 +100,71 @@ def get_access_token(email, password, auth_url):
         driver.find_element(By.ID, "install_allow").click()
         time.sleep(1)
 
-        # ==== Проверка на капчу ====
-        captcha_present = False
         try:
             captcha_img = driver.find_element(By.CLASS_NAME, "oauth_captcha")
-            captcha_present = captcha_img.is_displayed()
+            if captcha_img.is_displayed():
+                print(f"[!] {L['captcha_found']} {captcha_img.get_attribute('src')}")
+                captcha_text = solve_captcha(captcha_img.get_attribute("src"))
+                if captcha_text:
+                    print(f"{L['captcha_ok']} {captcha_text}")
+                    driver.find_element(By.NAME, "captcha_key").send_keys(captcha_text)
+                    driver.find_element(By.ID, "install_allow").click()
+                else:
+                    print(L["captcha_failed"])
+                    return None, user_agent
         except:
-            captcha_present = False
+            print(L["no_captcha"])
 
-        if captcha_present:
-            captcha_url = captcha_img.get_attribute("src")
-            print(f"[!] Капча найдена: {captcha_url}")
-            captcha_text = solve_captcha(captcha_url)
-            if captcha_text:
-                print(f"[✓] Распознано: {captcha_text}")
-                captcha_input = driver.find_element(By.NAME, "captcha_key")
-                captcha_input.send_keys(captcha_text)
-                driver.find_element(By.ID, "install_allow").click()
-                time.sleep(1)
-            else:
-                print("[!] Не удалось распознать капчу")
-                return None, user_agent
-        else:
-            print("[•] Капча не обнаружена — продолжаем")
-
-        # ==== Нажатие кнопки 'Разрешить' (Allow), если появится ====
         for _ in range(20):
             time.sleep(0.5)
             try:
                 allow_button = driver.find_element(By.XPATH, '//button[contains(text(), "Allow")]')
-                if allow_button.is_displayed() and allow_button.is_enabled():
+                if allow_button.is_displayed():
                     allow_button.click()
-                    print("[•] Кнопка 'Разрешить' нажата")
+                    print(L["button_clicked"])
                     break
             except:
                 continue
 
-        # ==== Получение access_token ====
         for _ in range(20):
             time.sleep(0.5)
-            current_url = driver.current_url
-            if "#access_token=" in current_url:
-                fragment = current_url.split("#", 1)[1]
-                params = urllib.parse.parse_qs(fragment)
-                access_token = params.get("access_token", [None])[0]
+            if "#access_token=" in driver.current_url:
+                fragment = driver.current_url.split("#", 1)[1]
+                access_token = urllib.parse.parse_qs(fragment).get("access_token", [None])[0]
                 return access_token, user_agent
 
-        print(f"[!] Токен не найден для {email}")
+        print(f"{L['token_missing']} {email}")
         return None, user_agent
 
     except Exception as e:
-        print(f"[!] Ошибка для {email}: {e}")
+        print(f"{L['error_for']} {email}: {e}")
         return None, user_agent
 
     finally:
         driver.quit()
 
-
 def process_accounts():
     auth_url = build_auth_url()
     with open(ACCOUNTS_FILE, "r", encoding="utf-8") as file:
-        lines = file.readlines()
+        for line in file:
+            email, password = line.strip().split(":", 1)
+            print(f"{L['processing']} {email}")
+            token, ua = get_access_token(email, password, auth_url)
 
-    for line in lines:
-        email, password = line.strip().split(":", 1)
-        print(f"[•] Processing: {email}")
-        token, ua = get_access_token(email, password, auth_url)
+            with open(OUTPUT_FILE, "a", encoding="utf-8") as outfile:
+                if token:
+                    if OUTPUT_FORMAT == 1:
+                        outfile.write(f"{email}:{password}:{token}\n")
+                    elif OUTPUT_FORMAT == 2:
+                        outfile.write(f"{email}:{password}:{token}:{ua}\n")
+                    elif OUTPUT_FORMAT == 3:
+                        outfile.write(f"{token}:{ua}\n")
+                    print(f"{L['success']} {email}")
+                else:
+                    outfile.write(f"{email}:{password}:FAILED\n")
+                    print(f"{L['failed']} {email}")
 
-        # 📥 Сохраняем результат сразу после обработки
-        with open(OUTPUT_FILE, "a", encoding="utf-8") as outfile:
-            if token:
-                if OUTPUT_FORMAT == 1:
-                    outfile.write(f"{email}:{password}:{token}\n")
-                elif OUTPUT_FORMAT == 2:
-                    outfile.write(f"{email}:{password}:{token}:{ua}\n")
-                elif OUTPUT_FORMAT == 3:
-                    outfile.write(f"{token}:{ua}\n")
-                print(f"[+] Success: {email}")
-            else:
-                outfile.write(f"{email}:{password}:FAILED\n")
-                print(f"[!] Failed: {email}")
-
-        time.sleep(1)
-
+            time.sleep(1)
 
 if __name__ == "__main__":
     process_accounts()

@@ -1,4 +1,5 @@
 # ==== LANGUAGE ====
+# ==== LANGUAGE ====
 LANGUAGES = {
     "RU": {
         "select_format": "Выберите формат вывода результата:",
@@ -19,6 +20,9 @@ LANGUAGES = {
         "processing": "[•] Обработка:",
         "success": "[+] Успешно:",
         "failed": "[!] Не удалось:",
+        "balance": "Баланс",
+        "balance_error": "Ошибка при получении баланса",
+        "balance_request_error": "Ошибка при запросе баланса"
     },
     "EN": {
         "select_format": "Select output format:",
@@ -39,6 +43,9 @@ LANGUAGES = {
         "processing": "[•] Processing:",
         "success": "[+] Success:",
         "failed": "[!] Failed:",
+        "balance": "Balance",
+        "balance_error": "Error retrieving balance",
+        "balance_request_error": "Request error while checking balance"
     },
     "CN": {
         "select_format": "请选择输出格式：",
@@ -59,6 +66,9 @@ LANGUAGES = {
         "processing": "[•] 处理：",
         "success": "[+] 成功：",
         "failed": "[!] 失败：",
+        "balance": "余额",
+        "balance_error": "获取余额时出错",
+        "balance_request_error": "请求余额时发生错误"
     },
 }
 

@@ -38,6 +38,18 @@ def choose_output_format():
 OUTPUT_FORMAT = choose_output_format()
 
 
+url = f"https://api.rucaptcha.com/proxy/balance?key={API_KEY}"
+try:
+    response = requests.get(url)
+    data = response.json()
+    if data.get("status") == "OK":
+        print(f"💰 {L['balance']}: {data['balance']}")
+    else:
+        print(f"❌ {L['balance_error']}: {data}")
+except Exception as e:
+    print(f"⚠️ {L['balance_request_error']}: {e}")
+        
+
 def build_auth_url():
     params = {
         "client_id": CLIENT_ID,

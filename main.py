@@ -23,6 +23,71 @@ API_CREATE_TASK = "https://api.rucaptcha.com/createTask"
 API_GET_RESULT = "https://api.rucaptcha.com/getTaskResult"
 
 
+
+
+
+def choose_mode():
+    print("\nВыберите режим работы:")
+    print("  A — Проверка аккаунтов (имя, дата регистрации)")
+    print("  C — Получение токенов (как сейчас)")
+    while True:
+        mode = input("Введите режим (A/C): ").strip().upper()
+        if mode in {"A", "C"}:
+            return mode
+        else:
+            print("Неверный ввод. Введите A или C.")
+
+MODE = choose_mode()
+
+
+url = f"https://api.rucaptcha.com/proxy/balance?key={API_KEY}"
+try:
+    response = requests.get(url)
+    data = response.json()
+    if data.get("status") == "OK":
+        print(f" \n \n 💰 {L['balance']}: {data['balance']} \n \n")
+    else:
+        print(f"❌ {L['balance_error']}: {data}")
+except Exception as e:
+    print(f"⚠️ {L['balance_request_error']}: {e}")
+import re
+from bs4 import BeautifulSoup
+
+def check_vk_account(email, password):
+    session = requests.Session()
+    login_url = "https://vk.com"
+    try:
+        # Попробуем авторизоваться (через обычный POST запрос)
+        auth_data = {
+            "act": "login",
+            "role": "al_frame",
+            "email": email,
+            "pass": password
+        }
+        response = session.post("https://login.vk.com/?act=login", data=auth_data, allow_redirects=True)
+        if "remixsid" not in session.cookies.get_dict():
+            return None  # не авторизовались
+
+        # Перейдем в профиль
+        profile = session.get("https://vk.com/settings").text
+        soup = BeautifulSoup(profile, "html.parser")
+
+        # Поиск имени и фамилии
+        full_name = soup.find("div", class_="SettingsUserBlock__name")
+        if not full_name:
+            full_name = soup.find("h2")  # запасной вариант
+        name = full_name.get_text(strip=True) if full_name else "Неизвестно"
+
+        # Поиск даты регистрации (часто внизу страницы)
+        join_match = re.search(r"на сайте с (\d{1,2} \w+ \d{4})", profile)
+        joined = join_match.group(1) if join_match else "Неизвестно"
+
+        return name, joined
+
+    except Exception as e:
+        print(f"[!] Ошибка при проверке: {e}")
+        return None
+
 def choose_output_format():
     print(L["select_format"])
     for line in L["formats"]:
@@ -37,18 +102,6 @@ def choose_output_format():
 
 OUTPUT_FORMAT = choose_output_format()
 
-
-url = f"https://api.rucaptcha.com/proxy/balance?key={API_KEY}"
-try:
-    response = requests.get(url)
-    data = response.json()
-    if data.get("status") == "OK":
-        print(f"💰 {L['balance']}: {data['balance']}")
-    else:
-        print(f"❌ {L['balance_error']}: {data}")
-except Exception as e:
-    print(f"⚠️ {L['balance_request_error']}: {e}")
-        
 
 def build_auth_url():
     params = {
@@ -190,29 +243,43 @@ def get_access_token(email, password, auth_url):
     finally:
         driver.quit()
 
-
 def process_accounts():
     auth_url = build_auth_url()
     with open(ACCOUNTS_FILE, "r", encoding="utf-8") as file:
         for line in file:
             email, password = line.strip().split(":", 1)
             print(f"{L['processing']} {email}")
-            token, ua = get_access_token(email, password, auth_url)
 
-            with open(OUTPUT_FILE, "a", encoding="utf-8") as outfile:
-                if token:
-                    if OUTPUT_FORMAT == 1:
-                        outfile.write(f"{email}:{password}:{token}\n")
-                    elif OUTPUT_FORMAT == 2:
-                        outfile.write(f"{email}:{password}:{token}:{ua}\n")
-                    elif OUTPUT_FORMAT == 3:
-                        outfile.write(f"{token}:{ua}\n")
-                    print(f"{L['success']} {email}")
-                else:
-                    outfile.write(f"{email}:{password}:FAILED\n")
-                    print(f"{L['failed']} {email}")
+            if MODE == "C":
+                token, ua = get_access_token(email, password, auth_url)
 
-            time.sleep(1)
+                with open(OUTPUT_FILE, "a", encoding="utf-8") as outfile:
+                    if token:
+                        if OUTPUT_FORMAT == 1:
+                            outfile.write(f"{email}:{password}:{token}\n")
+                        elif OUTPUT_FORMAT == 2:
+                            outfile.write(f"{email}:{password}:{token}:{ua}\n")
+                        elif OUTPUT_FORMAT == 3:
+                            outfile.write(f"{token}:{ua}\n")
+                        print(f"{L['success']} {email}")
+                    else:
+                        outfile.write(f"{email}:{password}:FAILED\n")
+                        print(f"{L['failed']} {email}")
+
+                time.sleep(1)
+
+            elif MODE == "A":
+                result = check_vk_account(email, password)
+                with open("accounts_checked.txt", "a", encoding="utf-8") as checked_file:
+                    if result:
+                        name, joined = result
+                        checked_file.write(f"{email}:{password}:{name}:{joined}\n")
+                        print(f"✅ {email} → {name}, зарегистрирован: {joined}")
+                    else:
+                        checked_file.write(f"{email}:{password}:FAILED\n")
+                        print(f"❌ {email} — не удалось авторизоваться")
+                time.sleep(1)
+
 
 
 if __name__ == "__main__":

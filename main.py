@@ -308,8 +308,5 @@ def process_accounts():
                         checked_file.write(f"{email}:{password}:FAILED\n")
                         print(f"❌ {email} — не удалось авторизоваться")
 
-
-
-
 if __name__ == "__main__":
     process_accounts()

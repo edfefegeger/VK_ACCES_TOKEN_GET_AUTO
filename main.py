@@ -36,6 +36,7 @@ API_KEY = config.get("settings", "RUCAPTCHA_API_KEY")
 API_CREATE_TASK = "https://api.rucaptcha.com/createTask"
 API_GET_RESULT = "https://api.rucaptcha.com/getTaskResult"
 
+# ==== Прокси через расширение (авторизация без всплывающего окна) ====
 def create_proxy_auth_extension(proxy):
     ip, port, username, password = proxy.split(":")
     manifest_json = """
@@ -87,6 +88,7 @@ def apply_proxy(chrome_options, proxy_string):
     plugin_file = create_proxy_auth_extension(proxy_string)
     chrome_options.add_extension(plugin_file)
 
+# ==== Выбор режима ====
 def choose_mode():
     print("\nВыберите режим работы:")
     print("  A — Проверка аккаунтов (имя, дата регистрации)")
@@ -99,6 +101,7 @@ def choose_mode():
 
 MODE = choose_mode()
 
+# ==== Проверка баланса капчи ====
 url = f"https://api.rucaptcha.com/proxy/balance?key={API_KEY}"
 try:
     response = requests.get(url)
@@ -110,6 +113,7 @@ try:
 except Exception as e:
     print(f"⚠️ {L['balance_request_error']}: {e}")
 
+# ==== Формат вывода ====
 def choose_output_format():
     print(L["select_format"])
     for line in L["formats"]:
@@ -122,6 +126,7 @@ def choose_output_format():
 
 OUTPUT_FORMAT = choose_output_format()
 
+# ==== VK Auth URL ====
 def build_auth_url():
     params = {
         "client_id": CLIENT_ID,
@@ -133,6 +138,7 @@ def build_auth_url():
     }
     return "https://oauth.vk.com/oauth/authorize?" + urllib.parse.urlencode(params)
 
+# ==== Решение капчи ====
 def solve_captcha_from_base64(base64_img):
     try:
         task_payload = {
@@ -168,6 +174,7 @@ def solve_captcha_from_base64(base64_img):
         print(f"[!] Ошибка при решении капчи: {e}")
     return None
 
+# ==== Авторизация и получение токена ====
 def get_access_token(email, password, auth_url):
     chrome_options = Options()
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/117.0.0.0 Safari/537.36"
@@ -175,6 +182,7 @@ def get_access_token(email, password, auth_url):
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--headless=new")
 
     proxy = random.choice(PROXIES)
     apply_proxy(chrome_options, proxy)
@@ -251,6 +259,7 @@ def get_access_token(email, password, auth_url):
         driver.quit()
     return None, user_agent
 
+# ==== Проверка аккаунта (режим A) ====
 def check_vk_account(email, password):
     chrome_options = Options()
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/117.0.0.0 Safari/537.36"
@@ -302,7 +311,7 @@ def check_vk_account(email, password):
     finally:
         driver.quit()
 
-
+# ==== Основной цикл обработки ====
 def process_accounts():
     auth_url = build_auth_url()
     with open(ACCOUNTS_FILE, "r", encoding="utf-8") as file:
